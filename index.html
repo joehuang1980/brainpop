@@ -350,16 +350,20 @@
                 points: result.points
             };
 
-            // 更新：移除了可能導致 CORS 阻擋的標頭設定，讓瀏覽器以預設格式安全送出
+            // GAS 常見情況：已收到請求，但因未回傳 CORS 標頭導致前端 fetch 報錯。
+            // 使用 no-cors 可避免誤判失敗，改以「已送出」提示。
             fetch(GAS_URL, {
                 method: 'POST',
+                mode: 'no-cors',
+                keepalive: true,
                 body: JSON.stringify(finalData)
-            }).then(response => {
-                msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 紀錄已成功儲存至後台！)</span>`;
+            }).then(() => {
+                msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 紀錄已送出，請至後台確認)</span>`;
                 document.getElementById("reset-btn").style.display = "inline-block";
             }).catch(error => {
                 console.error('Error:', error);
-                msgBox.innerHTML += `<br><span style="color:red;">紀錄傳送發生錯誤。</span>`;
+                msgBox.innerHTML += `<br><span style="color:red;">網路連線異常，紀錄可能未送出，請稍後重試。</span>`;
+                document.getElementById("reset-btn").style.display = "inline-block";
             });
         }
     </script>
