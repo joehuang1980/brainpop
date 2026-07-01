@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BrainPOP 學習抽卡機</title>
     <style>
-        /* 基礎平板友善排版 */
         body {
             font-family: 'Comic Sans MS', 'Microsoft JhengHei', sans-serif;
             background-color: #f0f8ff;
@@ -71,7 +70,7 @@
             margin-top: 20px;
         }
 
-        /* 3D 翻牌動畫設定 */
+        /* 3D 翻牌動畫 */
         .card {
             width: 120px;
             height: 160px;
@@ -97,34 +96,37 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 40px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
-        /* 卡片背面 (問號方塊) */
         .card-back {
             background-color: #f1c40f;
             color: white;
             border: 4px solid #e67e22;
+            font-size: 40px;
         }
         .card-back::after { content: "?"; font-weight: bold; }
-        /* 卡片正面 (角色顯示) */
+        
         .card-front {
             background-color: #ecf0f1;
             transform: rotateY(180deg);
             flex-direction: column;
             border: 4px solid #3498db;
         }
+        
+        /* 角色圖案區塊：目前先用大字體的 Emoji 呈現，未來可換成背景圖片 */
         .char-image {
-            width: 80px;
-            height: 80px;
-            background-color: #ddd;
+            width: 70px;
+            height: 70px;
             border-radius: 50%;
             margin-bottom: 10px;
-            background-size: cover;
-            background-position: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 55px; /* 控制 Emoji 大小 */
+            background-color: transparent;
         }
         .char-name { font-size: 0.9rem; font-weight: bold; color: #333; }
-        .char-points { font-size: 0.8rem; color: #e74c3c; }
+        .char-points { font-size: 0.8rem; color: #e74c3c; margin-top: 5px; }
 
         #result-msg {
             margin-top: 20px;
@@ -133,7 +135,6 @@
             color: #27ae60;
             display: none;
         }
-        #loading { display: none; color: #2980b9; font-weight: bold; margin-top: 15px;}
     </style>
 </head>
 <body>
@@ -175,7 +176,6 @@
         </div>
 
         <button onclick="startGacha()">完成觀看，進入抽獎！</button>
-        <div id="loading">資料傳送中，請稍候...</div>
     </div>
 
     <div class="container" id="gacha-section">
@@ -205,10 +205,9 @@
     </div>
 
     <script>
-        // 替換成你的 Google Apps Script 網頁應用程式網址
+        // 【重要】請把下方網址換成你的 Google Apps Script 網頁應用程式網址
         const GAS_URL = "https://script.google.com/macros/s/AKfycbyPgfHE2G0XaWuL9xG3lF9VrQxaOHc5ty78miImKBd-IxwfXLh80-FJRY6p65xJa2J5SQ/exec";
 
-        // BrainPOP ELL 課程資料結構 (參考提供之清單)
         const courseData = {
             "Level 1": {
                 "Unit 1": ["1. The Friends", "2. Magic Show", "3. What Is It?", "4. Five Dogs", "5. Practice!", "Review"],
@@ -218,7 +217,6 @@
                 "Unit 5": ["1. Family Pictures", "2. A Gift for Ed", "3. I Remember!", "4. The Accident", "5. Nikki's Birthday", "Review"],
                 "Unit 6": ["1. The Thief", "2. Strange Dream", "3. A Bad Week", "4. Camping Trip", "5. Find the Keys", "Review"]
             },
-            // 在此結構下可依照 PDF 內容繼續擴充 Level 2 與 Level 3
             "Level 2": {
                 "Unit 1": ["1. Ben's Hobby", "2. A New Library", "3. Scary Stories", "4. Mammals", "5. The Dog Show", "Review"]
             },
@@ -227,40 +225,38 @@
             }
         };
 
-        // 瑪利歐卡池與機率設定
+        // 更新：使用 Emoji 作為圖示，確保畫面一定有圖案出現
         const gachaPool = [
             { rarity: 'N', prob: 0.50, points: 1, chars: [
-                { name: '慢慢龜', img: 'https://via.placeholder.com/80/2ecc71/ffffff?text=Koopa' },
-                { name: '栗寶寶', img: 'https://via.placeholder.com/80/8e44ad/ffffff?text=Goomba' },
-                { name: '嘿呵', img: 'https://via.placeholder.com/80/e74c3c/ffffff?text=ShyGuy' }
+                { name: '慢慢龜', icon: '🐢' },
+                { name: '栗寶寶', icon: '🌰' },
+                { name: '嘿呵', icon: '👻' }
             ]},
             { rarity: 'R', prob: 0.30, points: 3, chars: [
-                { name: '奇諾比奧', img: 'https://via.placeholder.com/80/3498db/ffffff?text=Toad' },
-                { name: '耀西', img: 'https://via.placeholder.com/80/27ae60/ffffff?text=Yoshi' }
+                { name: '奇諾比奧', icon: '🍄' },
+                { name: '耀西', icon: '🦖' }
             ]},
             { rarity: 'SR', prob: 0.15, points: 5, chars: [
-                { name: '瑪利歐', img: 'https://via.placeholder.com/80/c0392b/ffffff?text=Mario' },
-                { name: '路易吉', img: 'https://via.placeholder.com/80/2ecc71/ffffff?text=Luigi' },
-                { name: '碧姬公主', img: 'https://via.placeholder.com/80/ff9ff3/ffffff?text=Peach' },
-                { name: '庫巴', img: 'https://via.placeholder.com/80/f1c40f/ffffff?text=Bowser' }
+                { name: '瑪利歐', icon: '👨🏻‍🔧' },
+                { name: '路易吉', icon: '👨🏼‍🔧' },
+                { name: '碧姬公主', icon: '👸🏼' },
+                { name: '庫巴', icon: '🐉' }
             ]},
             { rarity: 'SSR', prob: 0.05, points: 10, chars: [
-                { name: '無敵星星', img: 'https://via.placeholder.com/80/f39c12/ffffff?text=Star' },
-                { name: '皇冠', img: 'https://via.placeholder.com/80/f1c40f/ffffff?text=Crown' },
-                { name: '火之花', img: 'https://via.placeholder.com/80/e67e22/ffffff?text=Flower' },
-                { name: '1-UP 蘑菇', img: 'https://via.placeholder.com/80/2ecc71/ffffff?text=1-UP' }
+                { name: '無敵星星', icon: '⭐' },
+                { name: '皇冠', icon: '👑' },
+                { name: '火之花', icon: '🌷' },
+                { name: '1-UP 蘑菇', icon: '🍄‍🟫' }
             ]}
         ];
 
         let watchData = {};
         let isCardFlipped = false;
 
-        // 連動選單邏輯
         function updateUnits() {
             const levelSelect = document.getElementById("level").value;
             const unitSelect = document.getElementById("unit");
             const lessonSelect = document.getElementById("lesson");
-            
             unitSelect.innerHTML = '<option value="" disabled selected>請選擇 Unit...</option>';
             lessonSelect.innerHTML = '<option value="" disabled selected>先選擇 Unit</option>';
             lessonSelect.disabled = true;
@@ -277,7 +273,6 @@
             const levelSelect = document.getElementById("level").value;
             const unitSelect = document.getElementById("unit").value;
             const lessonSelect = document.getElementById("lesson");
-            
             lessonSelect.innerHTML = '<option value="" disabled selected>請選擇 Lesson...</option>';
 
             if (unitSelect && courseData[levelSelect][unitSelect]) {
@@ -288,7 +283,6 @@
             }
         }
 
-        // 啟動抽卡機制
         function startGacha() {
             const viewer = document.getElementById("viewer").value;
             const level = document.getElementById("level").value;
@@ -301,17 +295,14 @@
             }
 
             watchData = { viewer, level, unit, lesson };
-            
             document.getElementById("form-section").style.display = "none";
             document.getElementById("gacha-section").style.display = "block";
         }
 
-        // 抽卡邏輯演算
         function drawLogic() {
             let rand = Math.random();
             let cumulative = 0;
             let selectedTier = null;
-
             for (let tier of gachaPool) {
                 cumulative += tier.prob;
                 if (rand <= cumulative) {
@@ -319,7 +310,6 @@
                     break;
                 }
             }
-
             const charIndex = Math.floor(Math.random() * selectedTier.chars.length);
             const character = selectedTier.chars[charIndex];
 
@@ -327,34 +317,30 @@
                 rarity: selectedTier.rarity,
                 points: selectedTier.points,
                 name: character.name,
-                img: character.img
+                icon: character.icon
             };
         }
 
-        // 翻牌與寫入後台
         function flipCard(cardElement) {
-            if (isCardFlipped) return; // 只能抽一張
+            if (isCardFlipped) return; 
             isCardFlipped = true;
 
             const result = drawLogic();
             
-            // 設定正面內容
+            // 替換牌面內容 (放入 Emoji 圖示)
             const front = cardElement.querySelector('.card-front');
             front.innerHTML = `
-                <div class="char-image" style="background-image: url('${result.img}')"></div>
+                <div class="char-image">${result.icon}</div>
                 <div class="char-name">${result.name}</div>
                 <div class="char-points">${result.rarity} (${result.points}分)</div>
             `;
 
-            // 觸發翻牌動畫
             cardElement.classList.add("flipped");
 
-            // 顯示結果文字
             const msgBox = document.getElementById("result-msg");
-            msgBox.innerHTML = `恭喜 ${watchData.viewer} 抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#7f8c8d;">(紀錄傳送中...)</span>`;
+            msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#7f8c8d;">(紀錄傳送中...)</span>`;
             msgBox.style.display = "block";
 
-            // 準備傳送資料至 Google Sheets
             const finalData = {
                 viewer: watchData.viewer,
                 level: watchData.level,
@@ -364,17 +350,16 @@
                 points: result.points
             };
 
+            // 更新：移除了可能導致 CORS 阻擋的標頭設定，讓瀏覽器以預設格式安全送出
             fetch(GAS_URL, {
                 method: 'POST',
-                mode: 'no-cors', // 避免跨網域阻擋
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(finalData)
-            }).then(() => {
-                msgBox.innerHTML = `恭喜 ${watchData.viewer} 抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(紀錄已成功儲存至後台！)</span>`;
+            }).then(response => {
+                msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 紀錄已成功儲存至後台！)</span>`;
                 document.getElementById("reset-btn").style.display = "inline-block";
             }).catch(error => {
                 console.error('Error:', error);
-                msgBox.innerHTML += `<br><span style="color:red;">紀錄傳送失敗，請稍後再試。</span>`;
+                msgBox.innerHTML += `<br><span style="color:red;">紀錄傳送發生錯誤。</span>`;
             });
         }
     </script>
