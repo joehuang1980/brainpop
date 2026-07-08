@@ -168,13 +168,13 @@
             50% { filter: saturate(125%); }
         }
         
-        /* 角色圖案區塊：改為顯示本地 SVG 圖片 */
+        /* 角色圖案區塊：顯示本地圖片檔 */
         .char-image {
             width: 70px;
             height: 70px;
             border-radius: 12px;
             margin-bottom: 10px;
-            object-fit: cover;
+            object-fit: contain;
             background-color: #ffffff;
             border: 2px solid #dfe6e9;
         }
@@ -279,28 +279,25 @@
             }
         };
 
-        // 使用本地 SVG 圖檔作為卡面圖示
+        // 使用使用者提供的本地 PNG 圖檔作為卡面圖示
         const gachaPool = [
             { rarity: 'N', prob: 0.50, points: 1, chars: [
-                { name: '慢慢龜', image: 'assets/cards/slow-turtle.svg' },
-                { name: '栗寶寶', image: 'assets/cards/chestnut-buddy.svg' },
-                { name: '嘿呵', image: 'assets/cards/boo-buddy.svg' }
+                { name: 'Goomba', image: 'assets/cards/goomba.png' },
+                { name: 'Shy Guy', image: 'assets/cards/shy-guy.png' },
+                { name: 'Boo', image: 'assets/cards/boo.png' }
             ]},
             { rarity: 'R', prob: 0.30, points: 3, chars: [
-                { name: '奇諾比奧', image: 'assets/cards/mushroom-guide.svg' },
-                { name: '耀西', image: 'assets/cards/dino-pal.svg' }
+                { name: 'Toad', image: 'assets/cards/toad.png' },
+                { name: 'Yoshi', image: 'assets/cards/yoshi.png' }
             ]},
             { rarity: 'SR', prob: 0.15, points: 5, chars: [
-                { name: '瑪利歐', image: 'assets/cards/plumber-red.svg' },
-                { name: '路易吉', image: 'assets/cards/plumber-green.svg' },
-                { name: '碧姬公主', image: 'assets/cards/princess-rose.svg' },
-                { name: '庫巴', image: 'assets/cards/dragon-king.svg' }
+                { name: 'Mario', image: 'assets/cards/mario.png' },
+                { name: 'Luigi', image: 'assets/cards/luigi.png' },
+                { name: 'Princess Peach', image: 'assets/cards/princess-peach.png' },
+                { name: 'Bowser', image: 'assets/cards/bowser.png' }
             ]},
             { rarity: 'SSR', prob: 0.05, points: 10, chars: [
-                { name: '無敵星星', image: 'assets/cards/hero-star.svg' },
-                { name: '皇冠', image: 'assets/cards/royal-crown.svg' },
-                { name: '火之花', image: 'assets/cards/fire-bloom.svg' },
-                { name: '1-UP 蘑菇', image: 'assets/cards/life-shroom.svg' }
+                { name: 'Fire Flower', image: 'assets/cards/fire-flower.png' }
             ]}
         ];
 
