@@ -400,17 +400,26 @@
                 t: Date.now().toString()
             });
 
-            const response = await fetch(`${GAS_URL}?${query.toString()}`, {
-                method: 'GET',
-                cache: 'no-store'
-            });
+            try {
+                const response = await fetch(`${GAS_URL}?${query.toString()}`, {
+                    method: 'GET',
+                    cache: 'no-store',
+                    mode: 'cors'
+                });
 
-            if (!response.ok) {
-                throw new Error(`Progress fetch failed with status ${response.status}`);
+                if (response.ok) {
+                    const payload = await readJsonResponse(response);
+                    const remoteProgress = extractProgressPayload(payload);
+                    if (Object.keys(remoteProgress).length > 0) {
+                        return normalizeProgress(remoteProgress);
+                    }
+                }
+            } catch (corsError) {
+                console.warn('GET request CORS issue, trying alternative...');
             }
 
-            const payload = await readJsonResponse(response);
-            return normalizeProgress(extractProgressPayload(payload));
+            // 備援：若 GET 失敗，丟出錯誤讓前端回到本機進度
+            throw new Error('Unable to fetch progress from cloud, will use local cache');
         }
 
         async function syncViewerProgressToCloud(viewer, meta = {}) {
@@ -540,7 +549,8 @@
                 return;
             }
 
-            setSyncStatus('正在讀取雲端進度...', '#2980b9');
+            setSyncStatus('正在同步雲端進度...', '#2980b9');
+            let syncSucceeded = false;
 
             try {
                 const remoteProgress = await fetchViewerProgressFromCloud(viewer);
@@ -552,16 +562,32 @@
                 const mergedProgress = mergeProgress(getViewerProgress(viewer), remoteProgress);
                 saveViewerProgress(viewer, mergedProgress);
                 updateLevelAccess();
-                setSyncStatus('已同步雲端進度，可跨裝置接續觀看。', '#27ae60');
+                setSyncStatus('✅ 已同步雲端進度，可跨裝置接續觀看。', '#27ae60');
+                syncSucceeded = true;
             } catch (error) {
-                console.error('Failed to load cloud progress:', error);
+                console.warn('Cloud sync attempt failed:', error.message);
 
                 if (syncToken !== viewerSyncToken) {
                     return;
                 }
 
                 updateLevelAccess();
-                setSyncStatus('目前無法讀取雲端進度，暫時使用這台裝置上的紀錄。', '#d35400');
+                setSyncStatus('⚠️ 使用本機進度（未連線到雲端）', '#d35400');
+            }
+
+            // 無論成功或失敗，都在背景嘗試同步一次（做為備援）
+            if (!syncSucceeded) {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    if (syncToken === viewerSyncToken) {
+                        const remoteProgress = await fetchViewerProgressFromCloud(viewer);
+                        const mergedProgress = mergeProgress(getViewerProgress(viewer), remoteProgress);
+                        saveViewerProgress(viewer, mergedProgress);
+                        setSyncStatus('✅ 已同步雲端進度，可跨裝置接續觀看。', '#27ae60');
+                    }
+                } catch (retryError) {
+                    // 重試也失敗，保持原狀
+                }
             }
         }
 
