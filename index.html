@@ -188,6 +188,12 @@
             color: #27ae60;
             display: none;
         }
+
+        #sync-status {
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
     </style>
 </head>
 <body>
@@ -197,12 +203,13 @@
         
         <div class="form-group">
             <label>觀看者是誰？</label>
-            <select id="viewer">
+            <select id="viewer" onchange="handleViewerChange()">
                 <option value="" disabled selected>請選擇...</option>
                 <option value="Olivia">Olivia</option>
                 <option value="Lucas">Lucas</option>
                 <option value="MAY">MAY</option>
             </select>
+            <div id="sync-status">請先選擇觀看者，系統會同步雲端進度。</div>
         </div>
 
         <div class="form-group">
@@ -260,7 +267,7 @@
 
     <script>
         // 【重要】請把下方網址換成你的 Google Apps Script 網頁應用程式網址
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbyPgfHE2G0XaWuL9xG3lF9VrQxaOHc5ty78miImKBd-IxwfXLh80-FJRY6p65xJa2J5SQ/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyOVR-qzQ3uKdCukn4nwDusgUxb0lS6LO1GyyhPdMyEdo6cCY95EadvV2TNdD17QVep1w/exec";
 
         const courseData = {
             "Level 1": {
@@ -303,6 +310,260 @@
 
         let watchData = {};
         let isCardFlipped = false;
+        let viewerSyncToken = 0;
+
+        function getViewerProgressKey(viewer) {
+            return `brainpop-progress-${viewer}`;
+        }
+
+        function getViewerProgress(viewer) {
+            if (!viewer) {
+                return {};
+            }
+
+            try {
+                return JSON.parse(localStorage.getItem(getViewerProgressKey(viewer))) || {};
+            } catch (error) {
+                console.error('Failed to parse saved progress:', error);
+                return {};
+            }
+        }
+
+        function saveViewerProgress(viewer, progress) {
+            if (!viewer) {
+                return;
+            }
+            localStorage.setItem(getViewerProgressKey(viewer), JSON.stringify(progress));
+        }
+
+        function setSyncStatus(message, color = '#7f8c8d') {
+            const status = document.getElementById('sync-status');
+            status.textContent = message;
+            status.style.color = color;
+        }
+
+        function normalizeProgress(progress) {
+            const normalized = {};
+
+            Object.keys(courseData).forEach((level) => {
+                const lessons = Array.isArray(progress?.[level]) ? progress[level] : [];
+                normalized[level] = Array.from(new Set(lessons.filter(Boolean)));
+            });
+
+            return normalized;
+        }
+
+        function mergeProgress(baseProgress, incomingProgress) {
+            const merged = normalizeProgress(baseProgress);
+            const normalizedIncoming = normalizeProgress(incomingProgress);
+
+            Object.keys(courseData).forEach((level) => {
+                merged[level] = Array.from(new Set([
+                    ...(merged[level] || []),
+                    ...(normalizedIncoming[level] || [])
+                ]));
+            });
+
+            return merged;
+        }
+
+        async function readJsonResponse(response) {
+            const text = await response.text();
+
+            if (!text) {
+                return {};
+            }
+
+            return JSON.parse(text);
+        }
+
+        function extractProgressPayload(payload) {
+            if (!payload || typeof payload !== 'object') {
+                return {};
+            }
+
+            if (payload.progress && typeof payload.progress === 'object') {
+                return payload.progress;
+            }
+
+            if (payload.data && payload.data.progress && typeof payload.data.progress === 'object') {
+                return payload.data.progress;
+            }
+
+            return payload;
+        }
+
+        async function fetchViewerProgressFromCloud(viewer) {
+            const query = new URLSearchParams({
+                action: 'getProgress',
+                viewer,
+                t: Date.now().toString()
+            });
+
+            const response = await fetch(`${GAS_URL}?${query.toString()}`, {
+                method: 'GET',
+                cache: 'no-store'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Progress fetch failed with status ${response.status}`);
+            }
+
+            const payload = await readJsonResponse(response);
+            return normalizeProgress(extractProgressPayload(payload));
+        }
+
+        async function syncViewerProgressToCloud(viewer, meta = {}) {
+            const payload = {
+                action: 'recordWatch',
+                viewer,
+                progress: getViewerProgress(viewer),
+                ...meta
+            };
+
+            const response = await fetch(GAS_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain;charset=utf-8'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Progress sync failed with status ${response.status}`);
+            }
+
+            const payloadResponse = await readJsonResponse(response);
+            const remoteProgress = extractProgressPayload(payloadResponse);
+
+            if (Object.keys(remoteProgress).length) {
+                saveViewerProgress(viewer, mergeProgress(getViewerProgress(viewer), remoteProgress));
+            }
+        }
+
+        function getLevelLessonIds(level) {
+            const units = courseData[level] || {};
+            const lessonIds = [];
+
+            Object.entries(units).forEach(([unit, lessons]) => {
+                lessons.forEach((lesson) => {
+                    lessonIds.push(`${unit}::${lesson}`);
+                });
+            });
+
+            return lessonIds;
+        }
+
+        function isLevelComplete(viewer, level) {
+            const requiredLessons = getLevelLessonIds(level);
+            if (!requiredLessons.length) {
+                return false;
+            }
+
+            const progress = getViewerProgress(viewer);
+            const watchedLessons = progress[level] || [];
+
+            return requiredLessons.every((lessonId) => watchedLessons.includes(lessonId));
+        }
+
+        function isLevelUnlocked(viewer, level) {
+            if (level === "Level 1") {
+                return true;
+            }
+
+            if (level === "Level 2") {
+                return isLevelComplete(viewer, "Level 1");
+            }
+
+            if (level === "Level 3") {
+                return isLevelComplete(viewer, "Level 2");
+            }
+
+            return false;
+        }
+
+        function markLessonComplete(viewer, level, unit, lesson) {
+            const progress = normalizeProgress(getViewerProgress(viewer));
+            const lessonId = `${unit}::${lesson}`;
+            const watchedLessons = progress[level] || [];
+
+            if (!watchedLessons.includes(lessonId)) {
+                watchedLessons.push(lessonId);
+                progress[level] = watchedLessons;
+                saveViewerProgress(viewer, progress);
+            }
+
+            return progress;
+        }
+
+        function resetCourseSelectors() {
+            const levelSelect = document.getElementById("level");
+            const unitSelect = document.getElementById("unit");
+            const lessonSelect = document.getElementById("lesson");
+
+            levelSelect.value = "";
+            unitSelect.innerHTML = '<option value="" disabled selected>先選擇 Level</option>';
+            lessonSelect.innerHTML = '<option value="" disabled selected>先選擇 Unit</option>';
+            unitSelect.disabled = true;
+            lessonSelect.disabled = true;
+        }
+
+        function updateLevelAccess() {
+            const viewer = document.getElementById("viewer").value;
+            const levelSelect = document.getElementById("level");
+            const selectedLevel = levelSelect.value;
+
+            Array.from(levelSelect.options).forEach((option) => {
+                if (!option.value) {
+                    return;
+                }
+
+                const unlocked = viewer && isLevelUnlocked(viewer, option.value);
+                option.disabled = !unlocked;
+                option.textContent = unlocked ? option.value : `${option.value}（需先完成前一級）`;
+            });
+
+            if (!viewer || (selectedLevel && !isLevelUnlocked(viewer, selectedLevel))) {
+                resetCourseSelectors();
+            }
+        }
+
+        async function handleViewerChange() {
+            const viewer = document.getElementById("viewer").value;
+            const syncToken = ++viewerSyncToken;
+
+            resetCourseSelectors();
+            updateLevelAccess();
+
+            if (!viewer) {
+                setSyncStatus('請先選擇觀看者，系統會同步雲端進度。');
+                return;
+            }
+
+            setSyncStatus('正在讀取雲端進度...', '#2980b9');
+
+            try {
+                const remoteProgress = await fetchViewerProgressFromCloud(viewer);
+
+                if (syncToken !== viewerSyncToken) {
+                    return;
+                }
+
+                const mergedProgress = mergeProgress(getViewerProgress(viewer), remoteProgress);
+                saveViewerProgress(viewer, mergedProgress);
+                updateLevelAccess();
+                setSyncStatus('已同步雲端進度，可跨裝置接續觀看。', '#27ae60');
+            } catch (error) {
+                console.error('Failed to load cloud progress:', error);
+
+                if (syncToken !== viewerSyncToken) {
+                    return;
+                }
+
+                updateLevelAccess();
+                setSyncStatus('目前無法讀取雲端進度，暫時使用這台裝置上的紀錄。', '#d35400');
+            }
+        }
 
         function getRandomFloat() {
             if (window.crypto && window.crypto.getRandomValues) {
@@ -351,6 +612,12 @@
 
             if (!viewer || !level || !unit || !lesson) {
                 alert("請將觀看者與課程單元都選擇完畢喔！");
+                return;
+            }
+
+            if (!isLevelUnlocked(viewer, level)) {
+                alert(`${level} 尚未解鎖，請先完成前一個 Level。`);
+                handleViewerChange();
                 return;
             }
 
@@ -407,31 +674,61 @@
             msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#7f8c8d;">(紀錄傳送中...)</span>`;
             msgBox.style.display = "block";
 
+            const progress = markLessonComplete(watchData.viewer, watchData.level, watchData.unit, watchData.lesson);
+            const watchedAt = new Date().toISOString();
+
             const finalData = {
+                action: 'recordWatch',
+                timestamp: watchedAt,
                 viewer: watchData.viewer,
                 level: watchData.level,
                 unit: watchData.unit,
                 lesson: watchData.lesson,
                 character: result.name,
-                points: result.points
+                points: result.points,
+                lessonId: `${watchData.unit}::${watchData.lesson}`,
+                progress,
+                // 與試算表欄位直接對應，GAS 可直接用這些欄位寫入。
+                "時間": watchedAt,
+                "觀看者": watchData.viewer,
+                "Level": watchData.level,
+                "Unit": watchData.unit,
+                "Lesson": watchData.lesson,
+                "抽中角色": result.name,
+                "獲得積分": result.points
             };
+
+            updateLevelAccess();
 
             // GAS 常見情況：已收到請求，但因未回傳 CORS 標頭導致前端 fetch 報錯。
             // 使用 no-cors 可避免誤判失敗，改以「已送出」提示。
-            fetch(GAS_URL, {
+            const watchRecordRequest = fetch(GAS_URL, {
                 method: 'POST',
                 mode: 'no-cors',
                 keepalive: true,
                 body: JSON.stringify(finalData)
-            }).then(() => {
-                msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 紀錄已送出，請至後台確認)</span>`;
-                document.getElementById("reset-btn").style.display = "inline-block";
-            }).catch(error => {
-                console.error('Error:', error);
-                msgBox.innerHTML += `<br><span style="color:red;">網路連線異常，紀錄可能未送出，請稍後重試。</span>`;
+            });
+
+            Promise.allSettled([
+                watchRecordRequest,
+                syncViewerProgressToCloud(watchData.viewer, finalData)
+            ]).then((results) => {
+                const cloudProgressSynced = results[1].status === 'fulfilled';
+
+                if (cloudProgressSynced) {
+                    msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 已同步雲端進度，可跨裝置接續觀看)</span>`;
+                    setSyncStatus('雲端進度同步完成。', '#27ae60');
+                } else {
+                    console.error('Cloud sync failed:', results[1].reason);
+                    msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#d35400;">(⚠️ 觀看紀錄已送出，但雲端進度同步失敗，目前只保存在這台裝置)</span>`;
+                    setSyncStatus('雲端同步失敗，目前只保存在這台裝置。', '#d35400');
+                }
+
                 document.getElementById("reset-btn").style.display = "inline-block";
             });
         }
+
+        updateLevelAccess();
     </script>
 </body>
 </html>
