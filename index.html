@@ -430,23 +430,52 @@
                 ...meta
             };
 
-            const response = await fetch(GAS_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain;charset=utf-8'
-                },
-                body: JSON.stringify(payload)
-            });
+            // 優先用可讀回應的 POST，同步成功時可立即合併雲端進度。
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8'
+                    },
+                    body: JSON.stringify(payload)
+                });
 
-            if (!response.ok) {
-                throw new Error(`Progress sync failed with status ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`Progress sync failed with status ${response.status}`);
+                }
+
+                const payloadResponse = await readJsonResponse(response);
+                const remoteProgress = extractProgressPayload(payloadResponse);
+
+                if (Object.keys(remoteProgress).length) {
+                    saveViewerProgress(viewer, mergeProgress(getViewerProgress(viewer), remoteProgress));
+                }
+
+                return { status: 'confirmed' };
+            } catch (postError) {
+                console.warn('Progress sync POST failed, fallback to no-cors:', postError);
             }
 
-            const payloadResponse = await readJsonResponse(response);
-            const remoteProgress = extractProgressPayload(payloadResponse);
+            // 若被 CORS 擋住，改以 no-cors 送出，並嘗試用 GET 驗證是否已寫入雲端。
+            try {
+                await fetch(GAS_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    keepalive: true,
+                    body: JSON.stringify(payload)
+                });
 
-            if (Object.keys(remoteProgress).length) {
-                saveViewerProgress(viewer, mergeProgress(getViewerProgress(viewer), remoteProgress));
+                try {
+                    const remoteProgress = await fetchViewerProgressFromCloud(viewer);
+                    const mergedProgress = mergeProgress(getViewerProgress(viewer), remoteProgress);
+                    saveViewerProgress(viewer, mergedProgress);
+                    return { status: 'confirmed' };
+                } catch (verifyError) {
+                    console.warn('Progress sync verification skipped:', verifyError);
+                    return { status: 'submitted' };
+                }
+            } catch (fallbackError) {
+                throw new Error(`Progress sync request failed: ${fallbackError.message}`);
             }
         }
 
@@ -739,15 +768,21 @@
                 watchRecordRequest,
                 syncViewerProgressToCloud(watchData.viewer, finalData)
             ]).then((results) => {
-                const cloudProgressSynced = results[1].status === 'fulfilled';
+                const cloudSyncResult = results[1];
+                const cloudSyncStatus = cloudSyncResult.status === 'fulfilled'
+                    ? (cloudSyncResult.value?.status || 'confirmed')
+                    : 'failed';
 
-                if (cloudProgressSynced) {
+                if (cloudSyncStatus === 'confirmed') {
                     msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#27ae60;">(✅ 已同步雲端進度，可跨裝置接續觀看)</span>`;
                     setSyncStatus('雲端進度同步完成。', '#27ae60');
+                } else if (cloudSyncStatus === 'submitted') {
+                    msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#d35400;">(☁️ 已送出雲端同步請求，雲端確認中)</span>`;
+                    setSyncStatus('已送出雲端同步請求，雲端確認中。', '#d35400');
                 } else {
-                    console.error('Cloud sync failed:', results[1].reason);
-                    msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#d35400;">(⚠️ 觀看紀錄已送出，但雲端進度同步失敗，目前只保存在這台裝置)</span>`;
-                    setSyncStatus('雲端同步失敗，目前只保存在這台裝置。', '#d35400');
+                    console.error('Cloud sync failed:', cloudSyncResult.reason);
+                    msgBox.innerHTML = `恭喜抽中 <strong>${result.name}</strong>！獲得 ${result.points} 分！<br><span style="font-size:0.9rem; color:#d35400;">(⚠️ 觀看紀錄已送出，但雲端同步未完成，請稍後再試)</span>`;
+                    setSyncStatus('雲端同步未完成，請稍後再試。', '#d35400');
                 }
 
                 document.getElementById("reset-btn").style.display = "inline-block";
